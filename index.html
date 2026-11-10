@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L'Aventure de Victor</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Baloo 2', system-ui, sans-serif; height:100vh; display:flex; flex-direction:column; background:linear-gradient(135deg,#7f5af0,#2cb67d); color:#222; }
+  header { padding:12px 18px; display:flex; justify-content:space-between; align-items:center; color:#fff; flex-wrap:wrap; gap:8px; }
+  header h1 { margin:0; font-size:1.5rem; }
+  .stats { display:flex; gap:10px; }
+  .badge { background:#fff3; padding:4px 12px; border-radius:20px; font-weight:700; }
+  .barre { height:10px; background:#fff4; border-radius:10px; margin:0 18px; overflow:hidden; }
+  .barre div { height:100%; width:0; background:#ffd803; transition:width .5s; }
+  .matieres { display:flex; gap:8px; padding:12px 18px; overflow-x:auto; }
+  .matieres button { border:none; border-radius:16px; padding:8px 14px; font-family:inherit; font-size:1rem; background:#fff; cursor:pointer; transition:transform .2s; white-space:nowrap; }
+  .matieres button:hover { transform:scale(1.08); }
+  .matieres button.active { background:#ffd803; font-weight:700; box-shadow:0 3px 0 #c9a800; }
+  #chat { flex:1; overflow-y:auto; margin:0 18px; padding:16px; background:#fffe; border-radius:22px; display:flex; flex-direction:column; gap:12px; }
+  .ligne { display:flex; align-items:flex-end; gap:8px; animation:pop .3s; }
+  .ligne.eleve { flex-direction:row-reverse; }
+  .avatar { font-size:2rem; }
+  .msg { max-width:70%; padding:10px 15px; border-radius:18px; line-height:1.4; font-size:1.05rem; }
+  .tuteur .msg { background:#e8e2ff; border-bottom-left-radius:4px; }
+  .eleve .msg { background:#2cb67d; color:#fff; border-bottom-right-radius:4px; }
+  .reflexion .msg { font-style:italic; opacity:.7; }
+  @keyframes pop { from { transform:scale(.8); opacity:0; } }
+  form { display:flex; gap:10px; padding:14px 18px; align-items:center; }
+  input[type=text] { flex:1; padding:14px; border-radius:18px; border:3px solid transparent; font-size:1.05rem; font-family:inherit; transition:border-color .3s; }
+  input[type=text].ecrire { border-color:#ffd803; box-shadow:0 0 0 4px #ffd80355; }
+  .rond { width:54px; height:54px; border-radius:50%; border:none; font-size:1.5rem; cursor:pointer; background:#ffd803; box-shadow:0 4px 0 #c9a800; }
+  .rond:active { transform:translateY(3px); box-shadow:0 1px 0 #c9a800; }
+  #micro.actif { background:#ff5470; box-shadow:0 4px 0 #b3364d; }
+  #micro.ecoute { animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { transform:scale(1.1); } }
+  #etat { color:#fff; font-weight:700; text-align:center; min-height:1.4em; margin-top:6px; }
+  #fete { position:fixed; inset:0; pointer-events:none; }
+  .confetti { position:absolute; top:-20px; font-size:1.6rem; animation:tombe 2s linear forwards; }
+  @keyframes tombe { to { transform:translateY(110vh) rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚀 L'Aventure de Victor</h1>
+  <div class="stats">
+    <span class="badge">⭐ <span id="etoiles">0</span></span>
+    <span class="badge">🔥 Série : <span id="serie">0</span></span>
+    <span class="badge" id="niveau">Niveau 1</span>
+    <label class="badge"><input type="checkbox" id="voix" checked> 🔊</label>
+  </div>
+</header>
+<div class="barre"><div id="progression"></div></div>
+<div class="matieres" id="matieres">
+  <button class="active">🔢 Maths</button>
+  <button>📖 Français</button>
+  <button>🌱 SVT</button>
+  <button>⚗️ Physique-chimie</button>
+  <button>🌍 Histoire-géo</button>
+</div>
+<div id="chat"></div>
+<div id="etat"></div>
+<form id="form">
+  <button type="button" class="rond" id="micro" title="Mode conversation">🎤</button>
+  <input type="text" id="saisie" placeholder="Écris ta réponse..." autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+  <button class="rond" title="Envoyer">➤</button>
+</form>
+<div id="fete"></div>
+<script>
+  const chat = document.getElementById('chat'), saisie = document.getElementById('saisie'), micro = document.getElementById('micro'), etat = document.getElementById('etat');
+  let etoiles = +(localStorage.etoiles || 0), serie = 0, matiere = 'Maths', historique = [], occupe = false;
+  let conversation = false, reco = null, ecoute = false, attendreEcrit = false;
+  function setEtat(t) { etat.textContent = t; }
+  function modeEcrit(actif) {
+    attendreEcrit = actif;
+    saisie.classList.toggle('ecrire', actif);
+    saisie.placeholder = actif ? '✍️ Écris ta réponse ici, attention à l\'orthographe !' : 'Écris ta réponse...';
+    if (actif) { if (reco && ecoute) reco.abort(); setEtat('✍️ Hibou veut une réponse écrite : tape-la au clavier.'); saisie.focus(); }
+  }
+  function ecouter() {
+    if (attendreEcrit) { setEtat('✍️ Hibou veut une réponse écrite : tape-la au clavier.'); saisie.focus(); return; }
+    if (!conversation || !reco || ecoute || occupe) return;
+    try { reco.start(); ecoute = true; micro.classList.add('ecoute'); setEtat('🎧 Je t\'écoute...'); } catch (e) {}
+  }
+  function parler(t) {
+    if (!document.getElementById('voix').checked || !window.speechSynthesis) { ecouter(); return; }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t); u.lang = 'fr-FR';
+    if (conversation) setEtat('🦉 Hibou parle...');
+    u.onend = () => { setEtat(''); ecouter(); };
+    u.onerror = () => { setEtat(''); ecouter(); };
+    speechSynthesis.speak(u);
+  }
+  function ajouter(t, qui) {
+    const l = document.createElement('div'); l.className = 'ligne ' + qui;
+    l.innerHTML = '<span class="avatar">' + (qui === 'eleve' ? '🧑‍🎓' : '🦉') + '</span>';
+    const m = document.createElement('div'); m.className = 'msg'; m.textContent = t; l.appendChild(m);
+    chat.appendChild(l); chat.scrollTop = chat.scrollHeight;
+    if (qui === 'tuteur') parler(t);
+    return l;
+  }
+  function confettis() { const f = document.getElementById('fete'); for (let i = 0; i < 25; i++) { const c = document.createElement('span'); c.className = 'confetti'; c.textContent = ['⭐','🎉','✨','🌟'][i % 4]; c.style.left = Math.random() * 100 + 'vw'; c.style.animationDelay = Math.random() * .6 + 's'; f.appendChild(c); setTimeout(() => c.remove(), 2800); } }
+  function afficherStats() {
+    document.getElementById('etoiles').textContent = etoiles;
+    document.getElementById('serie').textContent = serie;
+    document.getElementById('niveau').textContent = 'Niveau ' + (Math.floor(etoiles / 5) + 1);
+    document.getElementById('progression').style.width = (etoiles % 5) * 20 + '%';
+  }
+  function recompense(ok) {
+    if (ok) { etoiles++; serie++; localStorage.etoiles = etoiles; if (etoiles % 5 === 0) confettis(); } else serie = 0;
+    afficherStats();
+  }
+  async function envoyer(t, oral) {
+    if (!t.trim() || occupe) return; occupe = true;
+    if (!oral) modeEcrit(false);
+    ajouter((oral ? '🎤 ' : '') + t, 'eleve'); saisie.value = '';
+    historique.push({ role: 'user', content: (oral ? '[ORAL] ' : '') + t });
+    const attente = ajouter('Hibou réfléchit...', 'reflexion');
+    if (conversation) setEtat('🤔 Hibou réfléchit...');
+    try {
+      const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: historique, matiere }) });
+      const d = await r.json(); attente.remove();
+      if (!r.ok) throw new Error(d.error);
+      historique.push({ role: 'assistant', content: d.texte });
+      recompense(d.etoile);
+      occupe = false;
+      if (d.ecrit) modeEcrit(true);
+      ajouter(d.texte, 'tuteur');
+    } catch (e) { attente.remove(); historique.pop(); occupe = false; ajouter('Oups, Hibou a un souci technique : ' + (e.message || 'réessaie dans un instant.'), 'reflexion'); setEtat(''); ecouter(); }
+  }
+  document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); envoyer(saisie.value, false); });
+  document.querySelectorAll('#matieres button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#matieres button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); matiere = b.textContent.slice(2).trim(); historique = [];
+    modeEcrit(false); setEtat('');
+    if (reco && ecoute) reco.abort();
+    ajouter('C\'est parti pour ' + matiere + ' ! Sur quoi travailles-tu ?', 'tuteur');
+  });
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    reco = new SR(); reco.lang = 'fr-FR'; reco.interimResults = true; reco.continuous = false;
+    let final = '';
+    reco.onresult = e => {
+      const t = Array.from(e.results).map(r => r[0].transcript).join('');
+      saisie.value = t;
+      if (e.results[e.results.length - 1].isFinal) final = t;
+    };
+    reco.onend = () => {
+      ecoute = false; micro.classList.remove('ecoute');
+      if (final.trim()) { const t = final; final = ''; envoyer(t, true); }
+      else if (conversation && !occupe && !attendreEcrit && !(window.speechSynthesis && speechSynthesis.speaking)) setTimeout(ecouter, 300);
+    };
+    reco.onerror = e => { if (e.error === 'not-allowed') { conversation = false; micro.classList.remove('actif'); setEtat('Micro refusé : autorise-le dans le navigateur.'); } };
+    micro.onclick = () => {
+      if (attendreEcrit && conversation) { modeEcrit(false); ecouter(); return; }
+      conversation = !conversation;
+      micro.classList.toggle('actif', conversation);
+      if (conversation) { window.speechSynthesis && speechSynthesis.cancel(); attendreEcrit = false; saisie.classList.remove('ecrire'); ecouter(); }
+      else { if (ecoute) reco.abort(); window.speechSynthesis && speechSynthesis.cancel(); setEtat(''); }
+    };
+  } else { micro.onclick = () => alert('Le micro n\'est pas disponible dans ce navigateur. Essaie avec Chrome ou Edge.'); }
+  afficherStats();
+  ajouter('Salut Victor ! Je suis Hibou, ton tuteur. Appuie une fois sur le micro pour discuter avec moi à l\'oral, et appuie de nouveau pour arrêter. Chaque bonne réponse te fait gagner une étoile !', 'tuteur');
+</script>
+</body>
+</html>
